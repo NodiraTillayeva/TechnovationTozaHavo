@@ -20,12 +20,26 @@
     #layer-controls {
       position: absolute;
       top: 10px;
-      left: 10px;
+      left: 50%;
+      transform: translateX(-50%);
       z-index: 1001;
       background: white;
-      padding: 10px;
+      padding: 8px 12px;
       border: 1px solid gray;
+      border-radius: 12px;
       font-family: sans-serif;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    #layer-controls button {
+      margin: 2px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      background-color: #f0f0f0;
+      cursor: pointer;
+    }
+    #layer-controls button:hover {
+      background-color: #ddd;
     }
   </style>
 </head>
@@ -36,7 +50,7 @@
   <button onclick="showOnlyLayer('mq7')">MQ7</button>
   <button onclick="showOnlyLayer('mq8')">MQ8</button>
   <button onclick="showOnlyLayer('co2')">CO₂</button>
-  <button onclick="showOnlyLayer('aqi')">AQI</button>
+  <button onclick="showOnlyLayer('aqi')">Quality</button>
 </div>
 
 <div id="map"></div>
@@ -59,6 +73,12 @@
     attribution: '&copy; OpenStreetMap contributors'
   }).addTo(map);
 
+  L.tileLayer('https://tiles.waqi.info/tiles/usepa-aqi/{z}/{x}/{y}.png?token=7d66e4b0e69eaaf2a61639048b7b925c1e0235d0', {
+    maxZoom: 18,
+    opacity: 0.4,
+    attribution: 'Air Quality overlay from WAQI'
+  }).addTo(map);
+
   const layers = {
     mq4: L.layerGroup().addTo(map),
     mq7: L.layerGroup().addTo(map),
@@ -67,7 +87,10 @@
     aqi: L.layerGroup().addTo(map)
   };
 
+  let activeParameter = 'aqi';
+
   function showOnlyLayer(activeKey) {
+    activeParameter = activeKey;
     for (const key in layers) {
       if (key === activeKey) map.addLayer(layers[key]);
       else map.removeLayer(layers[key]);
@@ -106,73 +129,46 @@
     return "#555";
   }
 
-  const groupedAQIData = {};
+  const groupedData = {};
 
   Papa.parse("https://docs.google.com/spreadsheets/d/e/2PACX-1vSRB9qgGLhEvdKtiZjbJjGPqQfOekxljqRyezJmwn2qj5kLaSnV5AW571rTNQbIWz2Yq0rXsxQYvdDK/pub?output=csv", {
     download: true,
     header: true,
     complete: function(results) {
-      const latestByLocation = {};
-
       results.data.forEach(row => {
         const lat = parseFloat(row.Latitude);
         const lon = parseFloat(row.Longitude);
         const key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
-        const aqi = parseFloat(row.AQI);
         const time = new Date(row.Timestamp);
         const hour = time.getHours().toString().padStart(2, '0') + ':00';
 
-        if (!groupedAQIData[key]) groupedAQIData[key] = {};
-        groupedAQIData[key][hour] = aqi;
+        if (!groupedData[key]) groupedData[key] = { aqi: {}, mq4: {}, mq7: {}, mq8: {}, co2: {} };
 
-        const timestamp = time.getTime();
-        if (!latestByLocation[key] || timestamp > latestByLocation[key].timestamp) {
-          latestByLocation[key] = {
-            lat, lon, timestamp,
-            mq4: parseFloat(row.MQ4),
-            mq7: parseFloat(row.MQ7),
-            mq8: parseFloat(row.MQ8),
-            co2: parseFloat(row.CO2),
-            aqi
-          };
-        }
+        ['aqi', 'mq4', 'mq7', 'mq8', 'co2'].forEach(param => {
+          groupedData[key][param][hour] = parseFloat(row[param.toUpperCase()]);
+        });
 
-        // Create a marker for every AQI data point
-        const iconHtml = `<div class="custom-icon" style="background:${getColor(aqi, 'aqi')}">${Math.round(aqi)}</div>`;
-        const icon = L.divIcon({ html: iconHtml, className: '' });
-
-        const marker = L.marker([lat, lon], { icon: icon }).bindPopup(`
-          <strong>Quality:</strong> ${aqi}<br>
-          <strong>Time:</strong> ${row.Timestamp}<br>
-          <button onclick="showGraph(${lat}, ${lon})">📊 View Chart</button>
-        `);
-
-        layers.aqi.addLayer(marker);
-      });
-
-      // Add latest sensor values for MQ4–CO2
-      Object.entries(latestByLocation).forEach(([key, row]) => {
-        const sensors = ['mq4', 'mq7', 'mq8', 'co2'];
-        sensors.forEach(type => {
-          const value = row[type];
-          const color = getColor(value, type);
-          const iconHtml = `<div class="custom-icon" style="background:${color}">${Math.round(value)}</div>`;
+        ['aqi', 'mq4', 'mq7', 'mq8', 'co2'].forEach(param => {
+          const val = parseFloat(row[param.toUpperCase()]);
+          const color = getColor(val, param);
+          const iconHtml = `<div class="custom-icon" style="background:${color}">${Math.round(val)}</div>`;
           const icon = L.divIcon({ html: iconHtml, className: '' });
 
-          const marker = L.marker([row.lat, row.lon], { icon: icon }).bindPopup(`
-            <strong>${type.toUpperCase()}</strong>: ${value}<br>
-            <button onclick="showGraph(${row.lat}, ${row.lon})">📊 View AQI Chart</button>
+          const marker = L.marker([lat, lon], { icon: icon }).bindPopup(`
+            <strong>${param === 'aqi' ? 'Quality' : param.toUpperCase()}</strong>: ${val}<br>
+            <strong>Time:</strong> ${row.Timestamp}<br>
+            <button onclick="showGraph(${lat}, ${lon}, '${param}')">📊 View Chart</button>
           `);
 
-          layers[type].addLayer(marker);
+          layers[param].addLayer(marker);
         });
       });
     }
   });
 
-  function showGraph(lat, lon) {
+  function showGraph(lat, lon, param) {
     const key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
-    const data = groupedAQIData[key];
+    const data = groupedData[key]?.[param];
     if (!data) return;
 
     const sortedHours = Object.keys(data).sort();
@@ -188,7 +184,7 @@
         data: {
           labels: sortedHours,
           datasets: [{
-            label: `AQI by Hour`,
+            label: `${param === 'aqi' ? 'Quality' : param.toUpperCase()} by Hour`,
             data: values,
             borderColor: 'blue',
             borderWidth: 2,
@@ -201,7 +197,7 @@
           scales: {
             y: {
               beginAtZero: true,
-              title: { display: true, text: 'AQI' }
+              title: { display: true, text: param.toUpperCase() }
             },
             x: {
               title: { display: true, text: 'Hour' }
