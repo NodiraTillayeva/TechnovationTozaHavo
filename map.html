@@ -83,31 +83,26 @@
       if (value <= 300) return "purple";
       return "maroon";
     }
-
     if (type === 'mq4') {
       if (value <= 300) return "green";
       if (value <= 500) return "orange";
       return "red";
     }
-
     if (type === 'mq7') {
       if (value <= 200) return "green";
       if (value <= 350) return "orange";
       return "red";
     }
-
     if (type === 'mq8') {
       if (value <= 250) return "green";
       if (value <= 400) return "orange";
       return "red";
     }
-
     if (type === 'co2') {
       if (value <= 600) return "green";
       if (value <= 1000) return "orange";
       return "red";
     }
-
     return "#555";
   }
 
@@ -120,33 +115,44 @@
       const latestByLocation = {};
 
       results.data.forEach(row => {
-        const lat = parseFloat(row.Latitude).toFixed(5);
-        const lon = parseFloat(row.Longitude).toFixed(5);
-        const key = `${lat},${lon}`;
+        const lat = parseFloat(row.Latitude);
+        const lon = parseFloat(row.Longitude);
+        const key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
+        const aqi = parseFloat(row.AQI);
         const time = new Date(row.Timestamp);
-        const hour = `${time.getHours()}:00`;
+        const hour = time.getHours().toString().padStart(2, '0') + ':00';
 
-        // Group AQI readings by hour
         if (!groupedAQIData[key]) groupedAQIData[key] = {};
-        groupedAQIData[key][hour] = parseFloat(row.AQI);
+        groupedAQIData[key][hour] = aqi;
 
-        const ts = time.getTime();
-        if (!latestByLocation[key] || ts > latestByLocation[key].timestamp) {
+        const timestamp = time.getTime();
+        if (!latestByLocation[key] || timestamp > latestByLocation[key].timestamp) {
           latestByLocation[key] = {
-            lat: parseFloat(lat),
-            lon: parseFloat(lon),
+            lat, lon, timestamp,
             mq4: parseFloat(row.MQ4),
             mq7: parseFloat(row.MQ7),
             mq8: parseFloat(row.MQ8),
             co2: parseFloat(row.CO2),
-            aqi: parseFloat(row.AQI),
-            timestamp: ts
+            aqi
           };
         }
+
+        // Create a marker for every AQI data point
+        const iconHtml = `<div class="custom-icon" style="background:${getColor(aqi, 'aqi')}">${Math.round(aqi)}</div>`;
+        const icon = L.divIcon({ html: iconHtml, className: '' });
+
+        const marker = L.marker([lat, lon], { icon: icon }).bindPopup(`
+          <strong>AQI:</strong> ${aqi}<br>
+          <strong>Time:</strong> ${row.Timestamp}<br>
+          <button onclick="showGraph(${lat}, ${lon})">📊 View AQI Chart</button>
+        `);
+
+        layers.aqi.addLayer(marker);
       });
 
+      // Add latest sensor values for MQ4–CO2
       Object.entries(latestByLocation).forEach(([key, row]) => {
-        const sensors = ['mq4', 'mq7', 'mq8', 'co2', 'aqi'];
+        const sensors = ['mq4', 'mq7', 'mq8', 'co2'];
         sensors.forEach(type => {
           const value = row[type];
           const color = getColor(value, type);
@@ -157,6 +163,7 @@
             <strong>${type.toUpperCase()}</strong>: ${value}<br>
             <button onclick="showGraph(${row.lat}, ${row.lon})">📊 View AQI Chart</button>
           `);
+
           layers[type].addLayer(marker);
         });
       });
@@ -168,10 +175,7 @@
     const data = groupedAQIData[key];
     if (!data) return;
 
-    const sortedHours = Object.keys(data).sort((a, b) => {
-      return parseInt(a) - parseInt(b);
-    });
-
+    const sortedHours = Object.keys(data).sort();
     const values = sortedHours.map(h => data[h]);
 
     document.getElementById('graphModal').style.display = 'block';
