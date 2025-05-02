@@ -142,9 +142,9 @@
         const icon = L.divIcon({ html: iconHtml, className: '' });
 
         const marker = L.marker([lat, lon], { icon: icon }).bindPopup(`
-          <strong>AQI:</strong> ${aqi}<br>
+          <strong>Quality:</strong> ${aqi}<br>
           <strong>Time:</strong> ${row.Timestamp}<br>
-          <button onclick="showGraph(${lat}, ${lon})">📊 View AQI Chart</button>
+          <button onclick="showGraph(${lat}, ${lon})">📊 View Chart</button>
         `);
 
         layers.aqi.addLayer(marker);
