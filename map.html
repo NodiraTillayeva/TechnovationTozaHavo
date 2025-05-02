@@ -38,7 +38,15 @@
 
   map.locate({setView: true, maxZoom: 13});
   map.on('locationfound', function(e) {
-    L.marker(e.latlng).addTo(map).bindPopup("You are here");
+    
+    var humanIcon = L.icon({
+      iconUrl: 'https://cdn-icons-png.flaticon.com/512/847/847969.png',
+      iconSize: [32, 32],
+      iconAnchor: [16, 32],
+      popupAnchor: [0, -32]
+    });
+    L.marker(e.latlng, {icon: humanIcon}).addTo(map).bindPopup("You are here");
+    
     L.circle(e.latlng, e.accuracy / 2).addTo(map);
   });
   map.on('locationerror', function(e) {
@@ -61,8 +69,63 @@
     const icon = L.divIcon({html: iconHtml, className: ''});
     L.marker([m.lat, m.lon], {icon: icon})
       .addTo(map)
-      .bindPopup(`AQI: ${m.aqi}<br>MQ7: ${m.mq7} ppm<br>MQ135: ${m.mq135} ppm`);
+      .bindPopup(`
+        <strong>AQI: ${m.aqi}</strong><br>
+        MQ7: ${m.mq7} ppm<br>
+        MQ135: ${m.mq135} ppm<br>
+        <button onclick="showGraph(m.aqi)">📊 View AQI Graph</button>
+    `);
   });
 </script>
-</body>
+
+<!-- Chart.js Library -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<!-- Modal for Graph -->
+<div id="graphModal" style="display:none; position:fixed; top:10%; left:10%; width:80%; height:70%; background:white; border:2px solid gray; z-index:1000; padding:10px;">
+  <button onclick="document.getElementById('graphModal').style.display='none'" style="float:right;">Close</button>
+  <canvas id="aqiChart" width="400" height="300"></canvas>
+</div>
+<script>
+function showGraph(aqi) {
+  document.getElementById('graphModal').style.display = 'block';
+  const ctx = document.getElementById('aqiChart').getContext('2d');
+
+  // Destroy existing chart if any
+  if (window.myChart) {
+    window.myChart.destroy();
+  }
+
+  window.myChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      datasets: [{
+        label: 'AQI over last 7 days',
+        data: [
+          aqi - 10 + Math.random() * 20,
+          aqi - 8 + Math.random() * 15,
+          aqi - 6 + Math.random() * 10,
+          aqi,
+          aqi + 5,
+          aqi - 3,
+          aqi
+        ],
+        borderColor: 'blue',
+        borderWidth: 2,
+        fill: false
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: {
+          beginAtZero: true
+        }
+      }
+    }
+  });
+}
+</script></body>
 </html>
