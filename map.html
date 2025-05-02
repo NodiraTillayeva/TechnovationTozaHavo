@@ -30,156 +30,103 @@
   </style>
 </head>
 <body>
+
 <div id="layer-controls">
-  <label><input type="checkbox" checked onchange="toggleLayer(mq4Layer)"> MQ4</label><br>
-  <label><input type="checkbox" checked onchange="toggleLayer(mq7Layer)"> MQ7</label><br>
-  <label><input type="checkbox" checked onchange="toggleLayer(mq8Layer)"> MQ8</label><br>
-  <label><input type="checkbox" checked onchange="toggleLayer(co2Layer)"> CO₂</label>
+  <button onclick="showOnlyLayer('mq4')">MQ4</button>
+  <button onclick="showOnlyLayer('mq7')">MQ7</button>
+  <button onclick="showOnlyLayer('mq8')">MQ8</button>
+  <button onclick="showOnlyLayer('co2')">CO₂</button>
+  <button onclick="showOnlyLayer('aqi')">AQI</button>
 </div>
+
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
 
 <script>
-  const map = L.map('map').setView([41.31, 69.24], 13);
+  const map = L.map('map').setView([41.319, 69.248], 13);
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 18,
     attribution: '&copy; OpenStreetMap contributors'
   }).addTo(map);
 
-  L.tileLayer('https://tiles.waqi.info/tiles/usepa-aqi/{z}/{x}/{y}.png?token=7d66e4b0e69eaaf2a61639048b7b925c1e0235d0', {
-    maxZoom: 18,
-    opacity: 0.5,
-    attribution: 'WAQI AQI Overlay'
-  }).addTo(map);
+  // Layers
+  const layers = {
+    mq4: L.layerGroup().addTo(map),
+    mq7: L.layerGroup().addTo(map),
+    mq8: L.layerGroup().addTo(map),
+    co2: L.layerGroup().addTo(map),
+    aqi: L.layerGroup().addTo(map)
+  };
 
-  // Define sensor layers
-  const mq4Layer = L.layerGroup().addTo(map);
-  const mq7Layer = L.layerGroup().addTo(map);
-  const mq8Layer = L.layerGroup().addTo(map);
-  const co2Layer = L.layerGroup().addTo(map);
-
-  function toggleLayer(layer) {
-    if (map.hasLayer(layer)) map.removeLayer(layer);
-    else map.addLayer(layer);
+  function getColor(value, type) {
+    if (type === 'aqi') {
+      if (value <= 50) return "green";
+      if (value <= 100) return "yellow";
+      if (value <= 150) return "orange";
+      if (value <= 200) return "red";
+      if (value <= 250) return "purple";
+      return "maroon";
+    }
+    return "#555"; // default for sensor values
   }
 
-  function getColor(aqi) {
-    if (aqi <= 50) return "green";
-    if (aqi <= 100) return "yellow";
-    if (aqi <= 150) return "orange";
-    if (aqi <= 200) return "red";
-    if (aqi <= 250) return "purple";
-    return "maroon";
+  function showOnlyLayer(activeKey) {
+    for (const key in layers) {
+      if (key === activeKey) {
+        map.addLayer(layers[key]);
+      } else {
+        map.removeLayer(layers[key]);
+      }
+    }
   }
-
-  function getLayerColor(layer) {
-    if (layer === mq4Layer) return "blue";
-    if (layer === mq7Layer) return "orange";
-    if (layer === mq8Layer) return "purple";
-    if (layer === co2Layer) return "gray";
-    return "black";
-  }
-
-  let groupedData = {};
 
   Papa.parse("https://docs.google.com/spreadsheets/d/e/2PACX-1vSRB9qgGLhEvdKtiZjbJjGPqQfOekxljqRyezJmwn2qj5kLaSnV5AW571rTNQbIWz2Yq0rXsxQYvdDK/pub?output=csv", {
     download: true,
     header: true,
     complete: function(results) {
+      const latestData = {};
+
+      // Keep only latest reading per location
       results.data.forEach(row => {
+        const key = `${row.Latitude},${row.Longitude}`;
+        const time = new Date(row.Timestamp);
+        if (!latestData[key] || new Date(latestData[key].Timestamp) < time) {
+          latestData[key] = row;
+        }
+      });
+
+      Object.values(latestData).forEach(row => {
         const lat = parseFloat(row.Latitude);
         const lon = parseFloat(row.Longitude);
-        const key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
-        const aqi = parseFloat(row.AQI);
-        const time = row.Timestamp;
-        const mq4 = parseInt(row.MQ4);
-        const mq7 = parseInt(row.MQ7);
-        const mq8 = parseInt(row.MQ8);
-        const co2 = parseInt(row.CO2);
 
-        // Group AQI values by location
-        if (!groupedData[key]) groupedData[key] = { times: [], values: [] };
-        groupedData[key].times.push(time);
-        groupedData[key].values.push(aqi);
+        const values = {
+          mq4: parseFloat(row.MQ4),
+          mq7: parseFloat(row.MQ7),
+          mq8: parseFloat(row.MQ8),
+          co2: parseFloat(row.CO2),
+          aqi: parseFloat(row.AQI)
+        };
 
-        const iconHtml = `<div class="custom-icon" style="background:${getColor(aqi)}; border:2px solid black">${Math.round(aqi)}</div>`;
-        const icon = L.divIcon({ html: iconHtml, className: '' });
+        for (const key in values) {
+          const value = values[key];
+          const iconHtml = `<div class="custom-icon" style="background:${getColor(value, key)}">${Math.round(value)}</div>`;
+          const icon = L.divIcon({ html: iconHtml, className: '' });
 
-        const popupContent = `
-          <strong>Time:</strong> ${time}<br>
-          <strong>AQI:</strong> ${aqi.toFixed(1)}<br>
-          MQ4: ${mq4} ppm<br>
-          MQ7: ${mq7} ppm<br>
-          MQ8: ${mq8} ppm<br>
-          CO₂: ${co2} ppm<br>
-          <button onclick="showGraph(${lat}, ${lon})">📊 View AQI Trend</button>
-        `;
+          const marker = L.marker([lat, lon], { icon: icon }).bindPopup(`
+            <strong>Sensor:</strong> ${key.toUpperCase()}<br>
+            <strong>Value:</strong> ${value}<br>
+            <strong>Location:</strong> (${lat}, ${lon})<br>
+          `);
 
-        const marker = L.marker([lat, lon], { icon: icon }).bindPopup(popupContent);
-
-        mq4Layer.addLayer(marker);
-        mq7Layer.addLayer(marker);
-        mq8Layer.addLayer(marker);
-        co2Layer.addLayer(marker);
+          layers[key].addLayer(marker);
+        }
       });
     }
   });
-
-  function showGraph(lat, lon) {
-    const key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
-    const data = groupedData[key];
-    if (!data) return;
-
-    document.getElementById('graphModal').style.display = 'block';
-
-    setTimeout(() => {
-      const ctx = document.getElementById('aqiChart').getContext('2d');
-      if (window.myChart) window.myChart.destroy();
-
-      window.myChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: data.times,
-          datasets: [{
-            label: `AQI at (${lat.toFixed(4)}, ${lon.toFixed(4)})`,
-            data: data.values,
-            borderColor: 'blue',
-            borderWidth: 2,
-            fill: false
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          scales: {
-            y: {
-              beginAtZero: true,
-              title: {
-                display: true,
-                text: 'AQI'
-              }
-            },
-            x: {
-              title: {
-                display: true,
-                text: 'Time'
-              }
-            }
-          }
-        }
-      });
-    }, 100);
-  }
 </script>
 
-<!-- Chart Modal -->
-<div id="graphModal" style="display:none; position:fixed; top:10%; left:10%; width:80%; height:70%; background:white; border:2px solid gray; z-index:1000; padding:10px;">
-  <button onclick="document.getElementById('graphModal').style.display='none'" style="float:right;">Close</button>
-  <div style="height:90%"><canvas id="aqiChart" style="width:100%; height:100%;"></canvas></div>
-</div>
 </body>
 </html>
