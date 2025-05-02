@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>AQI Map from Google Sheet CSV</title>
+  <title>Air Quality Map</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
   <style>
@@ -17,10 +17,27 @@
       height: 30px;
       display: inline-block;
     }
+    #layer-controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1001;
+      background: white;
+      padding: 10px;
+      border: 1px solid gray;
+      font-family: sans-serif;
+    }
   </style>
 </head>
 <body>
+<div id="layer-controls">
+  <label><input type="checkbox" checked onchange="toggleLayer(mq4Layer)"> MQ4</label><br>
+  <label><input type="checkbox" checked onchange="toggleLayer(mq7Layer)"> MQ7</label><br>
+  <label><input type="checkbox" checked onchange="toggleLayer(mq8Layer)"> MQ8</label><br>
+  <label><input type="checkbox" checked onchange="toggleLayer(co2Layer)"> CO₂</label>
+</div>
 <div id="map"></div>
+
 <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
@@ -63,6 +80,19 @@
     return "maroon";
   }
 
+  const mq4Layer = L.layerGroup().addTo(map);
+  const mq7Layer = L.layerGroup().addTo(map);
+  const mq8Layer = L.layerGroup().addTo(map);
+  const co2Layer = L.layerGroup().addTo(map);
+
+  function toggleLayer(layer) {
+    if (map.hasLayer(layer)) {
+      map.removeLayer(layer);
+    } else {
+      map.addLayer(layer);
+    }
+  }
+
   Papa.parse("https://docs.google.com/spreadsheets/d/e/2PACX-1vSRB9qgGLhEvdKtiZjbJjGPqQfOekxljqRyezJmwn2qj5kLaSnV5AW571rTNQbIWz2Yq0rXsxQYvdDK/pub?output=csv", {
     download: true,
     header: true,
@@ -80,8 +110,7 @@
         const iconHtml = `<div class="custom-icon" style="background:${getColor(aqi)}">${aqi}</div>`;
         const icon = L.divIcon({html: iconHtml, className: ''});
 
-        L.marker([lat, lon], {icon: icon})
-          .addTo(map)
+        const marker = L.marker([lat, lon], {icon: icon})
           .bindPopup(`
             <strong>Time:</strong> ${time}<br>
             <strong>AQI:</strong> ${aqi}<br>
@@ -89,33 +118,33 @@
             MQ7: ${mq7} ppm<br>
             MQ8: ${mq8} ppm<br>
             CO₂: ${co2} ppm<br>
-            <button onclick="showGraph(${aqi})">📊 View AQI Graph</button>
+            <button onclick="showGraph(${lat}, ${lon})">📊 View Hourly AQI</button>
           `);
+
+        mq4Layer.addLayer(marker);
+        mq7Layer.addLayer(marker);
+        mq8Layer.addLayer(marker);
+        co2Layer.addLayer(marker);
       });
     }
   });
 
-  function showGraph(aqi) {
+  function showGraph(lat, lon) {
     document.getElementById('graphModal').style.display = 'block';
     setTimeout(() => {
       const ctx = document.getElementById('aqiChart').getContext('2d');
       if (window.myChart) window.myChart.destroy();
 
+      const hours = [...Array(12)].map((_, i) => `${24 - i}:00`).reverse();
+      const values = [...Array(12)].map(() => 50 + Math.random() * 100);
+
       window.myChart = new Chart(ctx, {
         type: 'line',
         data: {
-          labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+          labels: hours,
           datasets: [{
-            label: 'AQI over last 7 days',
-            data: [
-              aqi - 10 + Math.random() * 20,
-              aqi - 8 + Math.random() * 15,
-              aqi - 6 + Math.random() * 10,
-              aqi,
-              aqi + 5,
-              aqi - 3,
-              aqi
-            ],
+            label: `Hourly AQI at [${lat.toFixed(2)}, ${lon.toFixed(2)}]`,
+            data: values,
             borderColor: 'blue',
             borderWidth: 2,
             fill: false
@@ -133,7 +162,7 @@
   }
 </script>
 
-<!-- Modal for AQI Chart -->
+<!-- Modal -->
 <div id="graphModal" style="display:none; position:fixed; top:10%; left:10%; width:80%; height:70%; background:white; border:2px solid gray; z-index:1000; padding:10px;">
   <button onclick="document.getElementById('graphModal').style.display='none'" style="float:right;">Close</button>
   <div style="height:90%"><canvas id="aqiChart" style="width:100%; height:100%;"></canvas></div>
