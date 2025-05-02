@@ -41,7 +41,14 @@
 
 <div id="map"></div>
 
+<!-- Chart Modal -->
+<div id="graphModal" style="display:none; position:fixed; top:10%; left:10%; width:80%; height:70%; background:white; border:2px solid gray; z-index:1000; padding:10px;">
+  <button onclick="document.getElementById('graphModal').style.display='none'" style="float:right;">Close</button>
+  <div style="height:90%"><canvas id="aqiChart" style="width:100%; height:100%;"></canvas></div>
+</div>
+
 <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
 
 <script>
@@ -52,7 +59,6 @@
     attribution: '&copy; OpenStreetMap contributors'
   }).addTo(map);
 
-  // Layers
   const layers = {
     mq4: L.layerGroup().addTo(map),
     mq7: L.layerGroup().addTo(map),
@@ -61,71 +67,146 @@
     aqi: L.layerGroup().addTo(map)
   };
 
+  function showOnlyLayer(activeKey) {
+    for (const key in layers) {
+      if (key === activeKey) map.addLayer(layers[key]);
+      else map.removeLayer(layers[key]);
+    }
+  }
+
   function getColor(value, type) {
     if (type === 'aqi') {
       if (value <= 50) return "green";
       if (value <= 100) return "yellow";
       if (value <= 150) return "orange";
       if (value <= 200) return "red";
-      if (value <= 250) return "purple";
+      if (value <= 300) return "purple";
       return "maroon";
     }
-    return "#555"; // default for sensor values
+
+    if (type === 'mq4') {
+      if (value <= 300) return "green";
+      if (value <= 500) return "orange";
+      return "red";
+    }
+
+    if (type === 'mq7') {
+      if (value <= 200) return "green";
+      if (value <= 350) return "orange";
+      return "red";
+    }
+
+    if (type === 'mq8') {
+      if (value <= 250) return "green";
+      if (value <= 400) return "orange";
+      return "red";
+    }
+
+    if (type === 'co2') {
+      if (value <= 600) return "green";
+      if (value <= 1000) return "orange";
+      return "red";
+    }
+
+    return "#555";
   }
 
-  function showOnlyLayer(activeKey) {
-    for (const key in layers) {
-      if (key === activeKey) {
-        map.addLayer(layers[key]);
-      } else {
-        map.removeLayer(layers[key]);
-      }
-    }
-  }
+  const groupedAQIData = {};
 
   Papa.parse("https://docs.google.com/spreadsheets/d/e/2PACX-1vSRB9qgGLhEvdKtiZjbJjGPqQfOekxljqRyezJmwn2qj5kLaSnV5AW571rTNQbIWz2Yq0rXsxQYvdDK/pub?output=csv", {
     download: true,
     header: true,
     complete: function(results) {
-      const latestData = {};
+      const latestByLocation = {};
 
-      // Keep only latest reading per location
       results.data.forEach(row => {
-        const key = `${row.Latitude},${row.Longitude}`;
+        const lat = parseFloat(row.Latitude).toFixed(5);
+        const lon = parseFloat(row.Longitude).toFixed(5);
+        const key = `${lat},${lon}`;
         const time = new Date(row.Timestamp);
-        if (!latestData[key] || new Date(latestData[key].Timestamp) < time) {
-          latestData[key] = row;
+        const hour = `${time.getHours()}:00`;
+
+        // Group AQI readings by hour
+        if (!groupedAQIData[key]) groupedAQIData[key] = {};
+        groupedAQIData[key][hour] = parseFloat(row.AQI);
+
+        const ts = time.getTime();
+        if (!latestByLocation[key] || ts > latestByLocation[key].timestamp) {
+          latestByLocation[key] = {
+            lat: parseFloat(lat),
+            lon: parseFloat(lon),
+            mq4: parseFloat(row.MQ4),
+            mq7: parseFloat(row.MQ7),
+            mq8: parseFloat(row.MQ8),
+            co2: parseFloat(row.CO2),
+            aqi: parseFloat(row.AQI),
+            timestamp: ts
+          };
         }
       });
 
-      Object.values(latestData).forEach(row => {
-        const lat = parseFloat(row.Latitude);
-        const lon = parseFloat(row.Longitude);
-
-        const values = {
-          mq4: parseFloat(row.MQ4),
-          mq7: parseFloat(row.MQ7),
-          mq8: parseFloat(row.MQ8),
-          co2: parseFloat(row.CO2),
-          aqi: parseFloat(row.AQI)
-        };
-
-        for (const key in values) {
-          const value = values[key];
-          const iconHtml = `<div class="custom-icon" style="background:${getColor(value, key)}">${Math.round(value)}</div>`;
+      Object.entries(latestByLocation).forEach(([key, row]) => {
+        const sensors = ['mq4', 'mq7', 'mq8', 'co2', 'aqi'];
+        sensors.forEach(type => {
+          const value = row[type];
+          const color = getColor(value, type);
+          const iconHtml = `<div class="custom-icon" style="background:${color}">${Math.round(value)}</div>`;
           const icon = L.divIcon({ html: iconHtml, className: '' });
 
-          const marker = L.marker([lat, lon], { icon: icon }).bindPopup(`
-            <strong>Sensor:</strong> ${key.toUpperCase()}<br>
-            <strong>Value:</strong> ${value}<br>
-            <strong>Location:</strong> (${lat}, ${lon})<br>
+          const marker = L.marker([row.lat, row.lon], { icon: icon }).bindPopup(`
+            <strong>${type.toUpperCase()}</strong>: ${value}<br>
+            <button onclick="showGraph(${row.lat}, ${row.lon})">📊 View AQI Chart</button>
           `);
-
-          layers[key].addLayer(marker);
-        }
+          layers[type].addLayer(marker);
+        });
       });
     }
   });
+
+  function showGraph(lat, lon) {
+    const key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
+    const data = groupedAQIData[key];
+    if (!data) return;
+
+    const sortedHours = Object.keys(data).sort((a, b) => {
+      return parseInt(a) - parseInt(b);
+    });
+
+    const values = sortedHours.map(h => data[h]);
+
+    document.getElementById('graphModal').style.display = 'block';
+    setTimeout(() => {
+      const ctx = document.getElementById('aqiChart').getContext('2d');
+      if (window.myChart) window.myChart.destroy();
+
+      window.myChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: sortedHours,
+          datasets: [{
+            label: `AQI by Hour`,
+            data: values,
+            borderColor: 'blue',
+            borderWidth: 2,
+            fill: false
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: { display: true, text: 'AQI' }
+            },
+            x: {
+              title: { display: true, text: 'Hour' }
+            }
+          }
+        }
+      });
+    }, 100);
+  }
 </script>
 
 </body>
